@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="styles/github.css">
+<script src="highlight.pack.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+</head>
+<body>
+<h1>Text Highlighting Test</h1>
+<hr>
+<pre><code class="javascript">
+//------------------------------------------------------------------------------------
+      function Ball() {
+        this.lottoNumber = newBallId();
+        this.selected = false;
+        this.radius = ballRadius;
+        this.blowX = 0;
+        this.blowY = 0;
+        // this.vLeft = window.innerWidth*2/5 + Math.floor(Math.random()*window.innerWidth/5);
+        // this.vTop = window.innerHeight; 
+        this.vLeft = Math.floor(Math.random()*window.innerWidth);
+        this.vTop = Math.floor(Math.random()*window.innerHeight);
+
+        if(this.vLeft < 0)
+          this.vLeft = 0;
+        if((this.vLeft+this.radius) >= window.innerWidth)
+          this.vLeft = window.innerWidth - (this.radius);
+        if(this.vTop < 0)
+          this.vTop = 0;
+        if((this.vTop+this.radius) >= window.innerHeight)
+          this.vTop = window.innerHeight - (this.radius);
+
+        // save the current position
+        this.pLeft = this.vLeft;
+        this.pTop = this.vTop;
+        // set the center of ball
+        this.cX = this.vLeft + ballRadius/2;
+        this.cY = this.vTop + ballRadius/2;
+
+        this.moveX = Math.floor(Math.random()*18)-9;
+        if(this.moveX == 0)
+          this.moveX = 3;
+        this.moveY = Math.floor(Math.random()*18)-9;
+        if(this.moveY == 0)
+          this.moveY = -3;
+        this.ball = document.createElement('div');
+        // this.ball.innerHTML = this.lottoNumber;
+        this.ball.setAttribute('class', 'bouncingball');
+        // this.ball.setAttribute('onmousedown','divOnMouseOver(this)');
+        // this.ball.setAttribute('onmouseup','divOnMouseOut(this)');
+        this.ball.style.lineHeight = this.radius + 'px';
+        this.ball.style.left = this.vLeft + 'px';
+        this.ball.style.top = this.vTop + 'px';
+        this.ball.style.backgroundColor = randomColor();
+        this.ball.style.borderColor = this.ball.style.backgroundColor;
+        this.ball.style.width = this.radius + 'px'
+        this.ball.style.height = this.radius + 'px'
+        this.ball.style.borderRadius = Math.floor(this.radius/2)+'px';
+        document.body.appendChild(this.ball);
+        $(this.ball).hide();
+        $(this.ball).fadeIn(1500);
+        
+      }
+      Ball.prototype.resizeBall = function () {
+        var pRatio = pWindowWidth / pWindowHeight;
+        var cRatio = window.innerWidth / window.innerHeight;
+        if(pRatio > cRatio) {
+          this.ball.style.width = (this.radius*2*window.innerWidth)/pWindowWidth + 'px';
+          this.ball.style.height = (this.radius*2*window.innerWidth)/pWindowWidth+ 'px';
+          this.ball.style.borderRadius = (this.radius*window.innerWidth)/pWindowWidth+ 'px';
+        } else {
+          this.ball.style.width = (this.radius*2*window.innerHeight)/pWindowHeight + 'px';
+          this.ball.style.height = (this.radius*2*window.innerHeight)/pWindowHeight+ 'px';          
+          this.ball.style.borderRadius = (this.radius*window.innerHeight)/pWindowHeight+ 'px';
+        }
+      }
+
+      Ball.prototype.getBlowX = function() {
+        if(Math.abs(this.blowX)< 0.1)
+          this.blowX = 0;
+        this.blowX *= blowDownRatio;
+        if(this.blowX) {  // if not zero,
+          if(this.blowX > 0){
+            return this.blowX--;
+          }
+          else
+            return this.blowX++;
+        } else 
+          return this.blowX;
+      }
+      Ball.prototype.getBlowY = function() {
+        if(Math.abs(this.blowY)< 0.1)
+          this.blowY = 0;
+        this.blowY *= blowDownRatio;
+        if(this.blowY) {  // if not zero,
+          if(this.blowY > 0)
+            return this.blowY--;
+          else
+            return this.blowY++;
+        } else 
+          return this.blowY;
+      }
+      Ball.prototype.setBlowX = function(m) {
+        this.blowX = (this.moveX > 0)? m : -m;
+      }
+      Ball.prototype.setBlowY = function(m) {
+        this.blowY = (this.moveY > 0)? m : -m;
+      }
+</code></pre>
+</body>
+</html>

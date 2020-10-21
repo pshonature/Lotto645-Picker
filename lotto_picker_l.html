@@ -1,0 +1,715 @@
+<!doctype html>
+<html>
+<!--
+
+-->
+  <head>
+    <link rel="stylesheet" href="jquery-ui.min.css">
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="jquery-ui.min.js"></script>
+    <style>
+      body {
+        background-color: black;
+        margin: 0px;
+        border: 0px;
+        padding: 0px;
+      }
+      div.basket {
+        border: 2px solid #FF6666;
+        position: absolute;
+        background-image: url('earth.jpg');
+        z-index: -2;
+      }
+      div.bouncingball {
+        border: 1px solid black;
+        position: absolute;
+        text-align: center;
+        vertical-align: middle;
+        color: white;
+        font-size: 50px;
+        /*background-color: black; */
+        box-shadow: 3px 3px 2px #888888;
+        padding-top: 0px;
+        margin: 3px;
+        z-index: -1;
+        /*background-image: url("ball_green.png");*/
+      }
+      td {
+        color: gray;
+      }
+      button.timerControl {
+        font-size: 12pt;
+      }
+      div.button {
+        width: 150px;
+        height: 40px;
+        border: 2px solid gray;
+        position: center;
+        background-color: yellow;
+      }
+      div.copyright {
+        position: absolute;
+        text-align: right;
+        font-size: 9pt;
+        color: #999999;
+        height: 16px;
+      }
+    </style>
+    <script>
+      var balls = [];
+      var timeStarted, timeFinished, timeInterval;
+      var timer;  // for timeInterval() handler
+      var clockSpeed = 40;  //40
+      var blowDownRatio = 0.9;
+      var halfWindowWidth, halfWindowHeight;
+      var ballRadius = 100;
+      var blowMax = ballRadius*0.7;
+      var lotto = new LottoGame(30, 40);
+      var gravityForce = 1.2;
+      var pWindowWidth, pWindowHeight;
+      var lottoBasket=null;
+      var basketX, basketY, basketCX, basketCY, basketMargin;
+      var basketSize = 120;
+      var newBallId = (function() {
+              var ballId = 1;
+              return function() {
+                return ballId++;
+              }
+            })();
+      //------------------------------------------------------------------------------------
+      function LottoGame(x, y) {
+        this.balls = [];
+        this.x = x;
+        this.y = y;
+      }
+      LottoGame.prototype.push = function(ball) {
+        if(this.balls.length >= 6) {
+          alert("이미 6개의 공을 다 채웠습니다.");
+          return;
+        }
+        this.balls.push(ball);
+      }
+      LottoGame.prototype.arrangeBalls = function(speed) {
+        if(this.balls.length <= 0)
+          return;
+        var x = this.x;
+        var y = this.y;
+        for(var i=0; i<this.balls.length; i++) {
+          $(this.balls[i].ball).animate({left: x+(i*(ballRadius+10)) + 'px', top: y+'px'},speed,"easeOutQuart");
+        }
+      }
+      LottoGame.prototype.sortBalls = function(speed) {
+        if(this.balls.length <= 0)
+          return;
+        this.balls.sort(function(a,b) {return a.lottoNumber - b.lottoNumber;});
+        var x = this.x;
+        var y = this.y;
+        for(var i=0; i<this.balls.length; i++) {
+          $(this.balls[i].ball).animate({left: x+(i*(ballRadius+10)) + 'px', top: y+'px'},speed,"easeOutQuint");
+        }
+      }
+      //------------------------------------------------------------------------------------
+      var divOnMouseOver = function (t) {
+        var found = -1;
+        for(var j in balls)
+          if(balls[j].ball === t) {
+            // if(balls[j].ball.selected)
+            //   return;
+            found = j;
+            balls[found].selected = true;
+            break;
+          }
+        if(found >= 0)
+        {
+          var b = balls[found];
+          aBallCaught(b);
+        }
+      }
+      //------------------------------------------------------------------------------------
+      function aBallCaught (b) {
+        b.selected = true;
+        b.ball.style.borderColor = 'red';
+
+        b.ball.innerHTML = b.lottoNumber;
+        lotto.push(balls.splice(balls.indexOf(b),1)[0]);
+        lotto.arrangeBalls(1000);
+        document.getElementById('ballsleft').innerHTML = 6-lotto.balls.length;
+
+        // Game Over !!!
+        if(lotto.balls.length >= 6) {
+          document.getElementById('ballsleft').onclick = null;
+          toggleTimerControl("off");
+          $(lottoBasket).hide();
+          clearInterval(timer);                   // stop ball moving
+
+          for(var i=0; i<balls.length; i++) {     // hide all the balls that are not selected
+            $(balls[i].ball).fadeOut(1500);
+          }
+          // set the start position of 6 selected balls
+          lotto.x = (window.innerWidth - (ballRadius+10)*6)/2;
+          lotto.y = (window.innerHeight - ballRadius)/2;
+          // sort and move 6 balls to the preset position
+          lotto.sortBalls(1500);    
+
+          document.getElementById('timefinish').innerHTML = getTimeStamp(2);
+          document.getElementById('timeinterval').innerHTML = getTimeStamp(3);
+          $('#control').fadeOut(100);
+          // setTimeout(readyGame, 3000);
+          window.onclick = readyGame;
+          document.getElementById('ballsleft').innerHTML = 6-lotto.balls.length;
+       }
+      }
+      //------------------------------------------------------------------------------------
+      function distance(x1, y1, x2, y2) {
+        return Math.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
+      }
+      //------------------------------------------------------------------------------------
+      function innerProduct(x1, y1, x2, y2) {
+        return x1*x2 + y1*y2;
+      }
+      //------------------------------------------------------------------------------------
+      function absVector(x1, y1) {
+        return Math.sqrt((x1*x1 + y1*y1));
+      }
+      //------------------------------------------------------------------------------------
+      function angleOfVectors(x1, y1, x2, y2) {
+        var rad = Math.acos(innerProduct(x1,y1,x2,y2)/(absVector(x1,y1)*absVector(x2,y2)));
+        return rad*180/Math.PI;
+      }
+      //------------------------------------------------------------------------------------
+      function angleOfBall(b) {
+        var mX = b.vLeft - b.pLeft;
+        var mY = b.vTop - b.pTop;
+        var dX = basketCX - b.vLeft;
+        var dY = basketCY - b.vTop;
+        return Math.round(angleOfVectors(mX, mY, dX, dY));
+      }
+
+      //------------------------------------------------------------------------------------
+      var divOnMouseOut = function (t) {
+        //t.style.borderColor = t.style.backgroundColor;
+      }
+      //------------------------------------------------------------------------------------
+      function randomColor() {
+        var r = Math.floor(Math.random()*76)+160;
+        var g = Math.floor(Math.random()*76)+160;
+        var b = Math.floor(Math.random()*76)+160;
+        return 'rgb('+r+','+g+','+b+')';
+      }
+      //------------------------------------------------------------------------------------
+      function randomRadius(maxRadius, minRadius) {
+        if(arguments.length == 0)
+          maxRadius = 100;
+        if(arguments.legnth ==1) {
+          var r = Math.floor(Math.random()*maxRadius);
+          if(r%2 > 0)
+            return r+1;
+          return r;
+        }
+        else {
+          r = Math.floor(Math.random()*maxRadius)+minRadius;
+          if(r%2 > 0)
+            return r+1;
+          return r;
+        }
+      }
+      //------------------------------------------------------------------------------------
+      function pendingBasket(event) {
+        window.onmousemove = pendingBasket;
+        window.onclick = makeBasket;
+        basketX = event.pageX - basketSize/2;
+        basketY = event.pageY - basketSize/2;
+        lottoBasket.style.left = basketX + 'px';
+        lottoBasket.style.top = basketY + 'px';
+      }
+
+      //------------------------------------------------------------------------------------
+      function makeBasket(event) {
+        window.ondblclick = null;
+        window.onclick = null;
+        window.onmousemove = null;
+
+        basketX = event.pageX - basketSize/2;
+        basketY = event.pageY - basketSize/2; 
+        basketCX = basketX + basketSize/2;
+        basketCY = basketY + basketSize/2;
+        basketMargin = Math.round((basketSize - ballRadius)/2);
+
+        if(lottoBasket == null){
+          var bsk = document.createElement('div');
+          bsk.setAttribute('class', 'basket');
+          bsk.onmousedown = pendingBasket;
+          bsk.onmouseup = pendingBasket;
+          bsk.style.left = basketX + 'px';
+          bsk.style.top = basketY + 'px';
+          bsk.style.width = basketSize + 'px';
+          bsk.style.height = basketSize + 'px';
+          bsk.style.borderRadius = basketSize/2 + 'px';  // for circle-shape basket
+          document.body.appendChild(bsk);
+          lottoBasket = bsk;
+          window.ondblclick = '';
+        } else {
+          lottoBasket.style.left = basketX + 'px';
+          lottoBasket.style.top = basketY + 'px';
+          $(lottoBasket).fadeIn();
+        }
+
+      }
+      //------------------------------------------------------------------------------------
+      function checkBallInBasket(b) { // circle-shape basket
+        if(lottoBasket == null)
+          return false;
+        var x = b.cX;
+        var y = b.cY;
+        var d = Math.round(distance(x, y, basketCX, basketCY));
+        // b.ball.innerHTML = "<span style='font-size:12pt;'>" + d + "</span>"
+
+        if( d <= basketMargin) {
+          return true;
+        }
+        else
+          return false;
+        // if(x > basketX && x < (basketX + d) && y > basketY && y < (basketY + d))
+        //   $(b.ball).css("border-color","red");
+        // else
+        //   $(b.ball).css("border-color",$(b.ball).css("background-color"));
+      }
+      //------------------------------------------------------------------------------------
+      function checkBallInBasket2(b) {  // box-shape basket
+        if(lottoBasket == null)
+          return false;
+        var x = b.vLeft;
+        var y = b.vTop;
+        var d = basketSize - ballRadius-5;
+
+        if(x > basketX && x < (basketX + d) && y > basketY && y < (basketY + d))
+          return true;
+        else
+          return false;
+        // if(x > basketX && x < (basketX + d) && y > basketY && y < (basketY + d))
+        //   $(b.ball).css("border-color","red");
+        // else
+        //   $(b.ball).css("border-color",$(b.ball).css("background-color"));
+      }
+      //------------------------------------------------------------------------------------
+      function Ball() {
+        this.lottoNumber = newBallId();
+        this.selected = false;
+        this.radius = ballRadius;
+        this.blowX = 0;
+        this.blowY = 0;
+        // this.vLeft = window.innerWidth*2/5 + Math.floor(Math.random()*window.innerWidth/5);
+        // this.vTop = window.innerHeight; 
+        this.vLeft = Math.floor(Math.random()*window.innerWidth);
+        this.vTop = Math.floor(Math.random()*window.innerHeight);
+
+        if(this.vLeft < 0)
+          this.vLeft = 0;
+        if((this.vLeft+this.radius) >= window.innerWidth)
+          this.vLeft = window.innerWidth - (this.radius)-5;
+        if(this.vTop < 0)
+          this.vTop = 0;
+        if((this.vTop+this.radius) >= window.innerHeight)
+          this.vTop = window.innerHeight - (this.radius)-5;
+
+        // save the current position
+        this.pLeft = this.vLeft;
+        this.pTop = this.vTop;
+        // set the center of ball
+        this.cX = this.vLeft + this.radius/2;
+        this.cY = this.vTop + this.radius/2;
+
+        this.moveX = Math.floor(Math.random()*(ballRadius/6)-ballRadius/12);
+        if(this.moveX == 0)
+          this.moveX = 3;
+        this.moveY = Math.floor(Math.random()*(ballRadius/6)-ballRadius/12);
+        if(this.moveY == 0)
+          this.moveY = -3;
+        this.ball = document.createElement('div');
+        // this.ball.innerHTML = this.lottoNumber;
+        this.ball.setAttribute('class', 'bouncingball');
+        // this.ball.setAttribute('onmousedown','divOnMouseOver(this)');
+        // this.ball.setAttribute('onmouseup','divOnMouseOut(this)');
+        this.ball.style.lineHeight = (this.radius+5) + 'px';
+        this.ball.style.left = this.vLeft + 'px';
+        this.ball.style.top = this.vTop + 'px';
+        this.ball.style.backgroundColor = randomColor();
+        this.ball.style.borderColor = this.ball.style.backgroundColor;
+        this.ball.style.width = this.radius + 'px'
+        this.ball.style.height = this.radius + 'px'
+        this.ball.style.borderRadius = Math.round(this.radius/2)+'px';
+
+        // Set the ball color
+        if(this.lottoNumber <= 10)
+          this.ball.style.backgroundImage = 'url("ball_yellow.png")';
+        else if (this.lottoNumber <= 20)
+          this.ball.style.backgroundImage = 'url("ball_blue.png")';
+        else if (this.lottoNumber <= 30)
+          this.ball.style.backgroundImage = 'url("ball_red.png")';
+        else if (this.lottoNumber <= 40)
+          this.ball.style.backgroundImage = 'url("ball_black.png")';
+        else
+          this.ball.style.backgroundImage = 'url("ball_green.png")';
+
+        document.body.appendChild(this.ball);
+        $(this.ball).hide();
+        $(this.ball).fadeIn(1500);
+        
+      }
+      Ball.prototype.resizeBall = function () {
+        var pRatio = pWindowWidth / pWindowHeight;
+        var cRatio = window.innerWidth / window.innerHeight;
+        if(pRatio > cRatio) {
+          this.ball.style.width = (this.radius*2*window.innerWidth)/pWindowWidth + 'px';
+          this.ball.style.height = (this.radius*2*window.innerWidth)/pWindowWidth+ 'px';
+          this.ball.style.borderRadius = (this.radius*window.innerWidth)/pWindowWidth+ 'px';
+        } else {
+          this.ball.style.width = (this.radius*2*window.innerHeight)/pWindowHeight + 'px';
+          this.ball.style.height = (this.radius*2*window.innerHeight)/pWindowHeight+ 'px';          
+          this.ball.style.borderRadius = (this.radius*window.innerHeight)/pWindowHeight+ 'px';
+        }
+      }
+
+      Ball.prototype.getBlowX = function() {
+        if(Math.abs(this.blowX)< 0.1)
+          this.blowX = 0;
+        this.blowX *= blowDownRatio;
+        if(this.blowX) {  // if not zero,
+          if(this.blowX > 0){
+            return this.blowX--;
+          }
+          else
+            return this.blowX++;
+        } else 
+          return this.blowX;
+      }
+      Ball.prototype.getBlowY = function() {
+        if(Math.abs(this.blowY)< 0.1)
+          this.blowY = 0;
+        this.blowY *= blowDownRatio;
+        if(this.blowY) {  // if not zero,
+          if(this.blowY > 0)
+            return this.blowY--;
+          else
+            return this.blowY++;
+        } else 
+          return this.blowY;
+      }
+      Ball.prototype.setBlowX = function(m) {
+        this.blowX = (this.moveX > 0)? m : -m;
+      }
+      Ball.prototype.setBlowY = function(m) {
+        this.blowY = (this.moveY > 0)? m : -m;
+      }
+
+      Ball.prototype.directMove = function(x, y, s, e) {
+        this.pLeft = this.vLeft;
+        this.pTop = this.vTop;
+        this.vLeft = x;
+        this.vTop = y;
+        // set the center of ball
+        this.cX = this.vLeft + ballRadius/2;
+        this.cY = this.vTop + ballRadius/2;
+
+        $(this.ball).animate({left: x+'px', top: y+'px'}, s, e);
+      }
+
+      Ball.prototype.move = function () {
+        this.pLeft = this.vLeft;
+        this.pTop = this.vTop;
+
+        this.vLeft += this.moveX + this.getBlowX();
+        if(this.vLeft <= 0) {
+          this.vLeft = 0;
+          this.moveX *= -1; 
+          this.setBlowX(blowMax*this.vTop/window.innerHeight);
+        }
+
+        //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        // apply vertical direction gravity
+        this.moveY += gravityForce;
+        //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        this.vTop += this.moveY + this.getBlowY();
+        if(this.vTop <= 0) {
+          this.vTop = 0;
+          this.moveY *= 0;
+          // this.moveY *= -1;
+          this.setBlowY(0);
+        }
+
+        this.vRight = this.vLeft + this.radius - 1;
+        this.vBottom = this.vTop  + this.radius - 1;
+
+        if(this.vRight >= (window.innerWidth-1)) {
+          this.vLeft = window.innerWidth - this.radius-1;
+          this.vRight = this.vLeft + 2*this.radius - 1;
+          this.moveX *= -1;
+
+          var distFromHalf = Math.abs(halfWindowHeight-this.vTop);
+          var x = 1 + distFromHalf/blowMax;
+          this.setBlowX(blowMax/x);
+          // this.setBlowX(blowMax*this.vTop/window.innerHeight);
+        }
+        if(this.vBottom >= (window.innerHeight-1)) {
+          this.vTop = window.innerHeight - this.radius-1;
+          this.vBottom = this.vTop  + 2*this.radius - 1;
+          this.moveY *= -1;
+
+          var distFromHalf = Math.abs(halfWindowWidth-this.vLeft)
+          var x = 1 + distFromHalf/blowMax;
+          this.setBlowY(blowMax/x);
+          // var invDistToHalf = halfWindowWidth - Math.abs(halfWindowWidth-this.vLeft);
+          // this.setBlowY(blowMax*invDistToHalf/halfWindowWidth);
+        }
+        // set the center of ball
+        this.cX = this.vLeft + ballRadius/2;
+        this.cY = this.vTop + ballRadius/2;
+
+        this.ball.style.left = this.vLeft + 'px';
+        this.ball.style.top = this.vTop + 'px';
+/*
+        if(distance(this.vLeft, this.vTop, this.pLeft, this.pTop) >= ballRadius/4) {
+          var a = angleOfBall(this);
+          if(a <= 30)
+            this.ball.innerHTML = "<span style='font-size: 20pt;'>" + angleOfBall(this) + "</span>";
+          else
+            this.ball.innerHTML = "<span style='font-size: 12pt;'>" + angleOfBall(this) + "</span>";
+        }
+*/        // this.ball.innerHTML = "<span style='font-size: 20px;'>"+Math.round(this.vLeft-this.pLeft)+', '+Math.round(this.vTop-this.pTop)+"</span>";
+
+
+
+        return checkBallInBasket(this);
+        // this.ball.innerHTML = "<span style='font-size: 20px;'>"+Math.round(this.moveX)+', '+Math.round(this.moveY)+"</span>";
+      };
+      //------------------------------------------------------------------------------------
+
+      function moveBalls() {
+        var caughtBallIndex = [];
+        for(var i in balls) {
+          if(balls[i].move())
+            caughtBallIndex.push(i);
+          document.getElementById('timefinish').innerHTML = getTimeStamp();
+        }
+        if(caughtBallIndex.length)
+          for(var i in caughtBallIndex) {
+            $(balls[caughtBallIndex[i]].ball).toggle( "pulsate" ).toggle("pulsate");
+            aBallCaught(balls[caughtBallIndex[i]]);
+          }
+      }
+      //------------------------------------------------------------------------------------
+      function getTimeStamp(mode) {
+        var d;
+        if(arguments.length > 0) {
+          if(mode == 1) {
+            timeStarted = new Date();
+            d = timeStarted;
+          }
+          if(mode == 2) {
+            timeFinished = new Date();
+            d = timeFinished
+          }
+          if(mode == 3) {
+            var i = timeFinished - timeStarted;
+            return (i/1000);
+          }
+        } else {
+          d = new Date();
+        }
+
+        var msg = '';
+        msg += addZero(d.getHours()) + ':' + addZero(d.getMinutes()) + ':' + addZero(d.getSeconds()) + '.<span style="font-size:11pt; color:#444;">' + d.getMilliseconds() + '</span>';
+        return msg;
+      }
+      //------------------------------------------------------------------------------------
+      function addZero(i) {
+         return (i < 10) ? "0" + i : i;
+      }
+      //------------------------------------------------------------------------------------
+      function startGame() {
+          // for(var i in balls)
+          //   balls[i].ball.setAttribute('onmousedown','divOnMouseOver(this)');
+  
+        if(lottoBasket == null){
+          var bsk = document.createElement('div');
+          bsk.setAttribute('class', 'basket');
+          bsk.onmousedown = pendingBasket;
+          bsk.onmouseup = pendingBasket;
+  
+          basketX = Math.round((window.innerWidth)/3);
+          basketY = Math.round((window.innerHeight)/3); 
+          basketCX = basketX + basketSize/2;
+          basketCY = basketY + basketSize/2;
+          basketMargin = Math.round((basketSize - ballRadius)/2);
+
+          bsk.style.left = basketX + 'px';
+          bsk.style.top = basketY + 'px';
+          bsk.style.width = basketSize + 'px';
+          bsk.style.height = basketSize + 'px';
+          bsk.style.borderRadius = basketSize/2 + 'px';  // for circle-shape basket
+          document.body.appendChild(bsk);
+          lottoBasket = bsk;
+          window.ondblclick = '';
+        }
+
+        timer = setInterval(moveBalls,clockSpeed);
+        document.getElementById('timestart').innerHTML = getTimeStamp(1);
+        document.getElementById('ballsleft').innerHTML = 6;
+        document.getElementById('timefinish').innerHTML = '';
+        document.getElementById('timeinterval').innerHTML = '?';
+        $('#control').fadeOut(100);
+
+        //########################################
+        // step motion controller, for debugging
+        toggleTimerControl();
+        //########################################
+        document.getElementById('ballsleft').onclick = toggleTimerControl;
+      }      
+      //------------------------------------------------------------------------------------
+      function reAlignCopyright() {
+        var dc = document.getElementById('copyright');
+        var dcs = dc.style;
+        dcs.top = (window.innerHeight - 30) + 'px';
+        dcs.width = (window.innerWidth - 30) + 'px';
+      }
+      //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      function prepareBalls() {
+        var x, y;
+        for(var i in balls) {
+          x = window.innerWidth*2/5 + Math.floor(Math.random()*window.innerWidth/5);
+          y = window.innerHeight - ballRadius;
+          balls[i].directMove(x, y,1500,"easeOutQuint"); 
+        }
+      }
+      //------------------------------------------------------------------------------------
+      function scatterBalls() {
+        var x, y;
+        for(var i in balls) {
+          x = Math.floor(Math.random()*window.innerWidth);
+          y = Math.floor(Math.random()*window.innerHeight);
+          balls[i].ball.selected = false;
+          balls[i].directMove(x, y, 1500, "easeOutQuint");
+        }
+      }// end of scatterBalls
+      //------------------------------------------------------------------------------------
+      function readyGame(event) {
+        //attach basket to mouse cursor
+        basketX = event.pageX - basketSize/2;
+        basketY = event.pageY - basketSize/2;
+        lottoBasket.style.left = basketX + 'px';
+        lottoBasket.style.top = basketY + 'px';
+
+        // hide all balls
+        $('.bouncingball').fadeOut(200);
+
+        // move lotto balls back to the 'balls'
+        for(var i=0; i<lotto.balls.length; i++) {
+          lotto.balls[i].ball.style.borderColor = lotto.balls[i].ball.style.backgroundColor;
+          lotto.balls[i].ball.innerHTML = '';
+          balls.unshift(lotto.balls[i]);
+        }  
+        // confirm the lotto can empty and reset the position of lotto can
+        lotto.balls = [];
+        lotto.x = 30;
+        lotto.y = 40;
+
+        $('.bouncingball').fadeIn(1000);
+        for(var i in balls)
+          balls[i].ball.setAttribute('onmousedown','');
+
+        document.getElementById('timestart').innerHTML = '';
+        document.getElementById('ballsleft').innerHTML = 6;
+        document.getElementById('timefinish').innerHTML = '';
+        document.getElementById('timeinterval').innerHTML = '?';
+
+
+        setTimeout(scatterBalls, 1000);
+        setTimeout(prepareBalls, 1500);
+        setTimeout(function(){$('#control').fadeIn(1000);},2000);
+        $(lottoBasket).fadeIn();
+        window.onmousemove = pendingBasket;
+      }
+      //------------------------------------------------------------------------------------
+      function toggleTimer() {
+        if(timer == null)
+          timer = setInterval(moveBalls,clockSpeed);
+        else {
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+      //------------------------------------------------------------------------------------
+      function toggleTimerControl() {
+        if(arguments.length) {
+          switch(arguments[0]) {
+            case "hide":
+            case "show":
+            case "on":
+                        $('.timerControl').fadeIn();
+                        break;
+            default:
+                        $('.timerControl').fadeOut();
+          }
+        } else
+          $('.timerControl').fadeToggle();
+      }
+      //------------------------------------------------------------------------------------
+      function stepTimer() {
+        if(timer != null) {
+          clearInterval(timer);
+          timer = null
+          return;
+        }
+        moveBalls();
+      }
+      //------------------------------------------------------------------------------------
+      function makeAndPushBall() {
+          balls.push(new Ball());        
+      }
+      //------------------------------------------------------------------------------------
+      window.onload = function() {
+        $('#svgcanvas').css('width', window.innerWidth);
+        $('#svgcanvas').css('height', window.innerHeight);
+
+
+        document.getElementById('pauseTimer').onclick = toggleTimer;
+        document.getElementById('stepTimer').onclick = stepTimer;
+        toggleTimerControl();
+        $('#control').hide();
+        reAlignCopyright();
+        halfWindowWidth = window.innerWidth/2;
+        halfWindowHeight = window.innerHeight/2;
+        //for window resizing event
+        pWindowWidth = window.innerWidth;
+        pWindowHeight = window.innerHeight;
+
+        // Make lotto balls
+        for(var i=1; i<=45; i++) {
+          setTimeout(makeAndPushBall, i*100);
+        }
+        setTimeout(prepareBalls, 5000);
+        setTimeout(function(){$('#control').fadeIn(1000)}, 6000);
+        setTimeout(function(){window.ondblclick=makeBasket;}, 6000);
+
+      }
+    </script>
+  </head>
+  <body onresize="reAlignCopyright();">
+  <table style="width:100%;"> <tr>
+  <td style="width: 100px; text-align: center;">
+      <button id="control" style="font-size:12pt;" onclick='startGame();'>Start</button>
+      <button class="timerControl" id="pauseTimer">P</button>
+      <button class="timerControl" id="stepTimer">S</button>
+
+  </td>
+  <td style="width:120px;">Balls Left: <b><span style="width:180px; color: #6666FF;" id=ballsleft>6</span></b> </td>
+  <td style="width:140px;">Start:<b><span id=timestart></span></b></td>
+  <td style="width:140px;"> Finish:<b><span id=timefinish></span></b></td>
+  <td style="text-align:right;">Game Time:<b><span id=timeinterval style="color: red; font-size: 12pt;">?</span></b> seconds.</td>
+  </tr></table>
+
+
+  <div id='copyright' class='copyright'> Copyright (c) 2016 by Pongsik, Ho.  컴퓨터정보과, 동의과학대학교 </div>
+
+  </body>
+</html>
